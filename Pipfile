@@ -12,6 +12,8 @@ pyvis = "*"
 sklearn = "*"
 streamlit = "*"
 pytest = "*"
+cookiecutter = "*"
+plotly = "*"
 
 [dev-packages]
 
