@@ -5,7 +5,6 @@ from pathlib import Path
 import base64
 
 
-
 full_path = Path(__file__).parent.absolute().parent.absolute()
 directory = f'{Path(full_path).parent}/data/processed'
 
@@ -15,14 +14,8 @@ fundos = pd.read_parquet(f'{directory}/dim_fundos.parquet')
 gestor = pd.read_parquet(f'{directory}/dim_gestor.parquet')
 tipo = pd.read_parquet(f'{directory}/dim_tipo_fundo.parquet')
 mvt = pd.read_parquet(f'{directory}/fato_movimento_detalhado.parquet')
-segmento = pd.read_parquet(f'{directory}/segmento_investidor.parquet')
-dim_segmento = pd.read_parquet(f'{directory}/dim_segmento_investidor.parquet')
 
 fundos['fundo_cnpj'] = pd.to_numeric(fundos['fundo_cnpj'])
-
-lista_fundos =  sorted(cda_fundos[['CNPJ_FUNDO_COTA']].merge(fundos[['fundo_cnpj', 'fundo_fantasia']], left_on='CNPJ_FUNDO_COTA', right_on = 'fundo_cnpj')['fundo_fantasia'].unique())
-
-
 
 opacity_node = 1
 
@@ -51,42 +44,20 @@ colors_link = {"Multimercados" : f"rgba(252, 157, 23, {opacity_link})",
 
 
 def get_table_download_link(df,name):
-    """Generates a link allowing the data in a given panda dataframe to be downloaded
-    in:  dataframe
-    out: href string
-    """
+  
     csv = df.to_csv(index=False, sep = ";", decimal = ',', encoding = 'latin1')
-    b64 = base64.b64encode(csv.encode('latin1')).decode()  # some strings <-> bytes conversions necessary here
+    b64 = base64.b64encode(csv.encode('latin1')).decode()
     href = f'<a href="data:file/csv;base64,{b64}" download="{name}.csv">Download dados</a>'
+    
     return href
 
 @st.cache
-def sankey(cda_fundos, segmento, dim_segmento, fund, fundos, colors_node, colors_link):
+def sankey(cda_fundos, fund, fundos, colors_node, colors_link):
 
-    seg_inv = segmento.merge(dim_segmento[['cod_segmento_investidor', 'segmento_investidor']], left_on = 'seg_inv_id', right_on = 'cod_segmento_investidor').merge(fundos[['fundo_codigo', 
-              'fundo_cnpj', 'fundo_fantasia']], left_on='codfundo', right_on='fundo_codigo')[['cod_segmento_investidor', 'segmento_investidor', 'pl', 'fundo_cnpj', 'fundo_fantasia' ]]
-    
-  
     df = cda_fundos[cda_fundos['NM_FUNDO_COTA'] == fund][['CNPJ_FUNDO', 'DENOM_SOCIAL', 'VL_MERC_POS_FINAL', 'CNPJ_FUNDO_COTA', 'NM_FUNDO_COTA']].reset_index(drop = True)
     
     df = df.groupby(by = ['CNPJ_FUNDO', 'DENOM_SOCIAL', 'CNPJ_FUNDO_COTA', 'NM_FUNDO_COTA'], as_index = False).sum()
     
-    cnpj = df['CNPJ_FUNDO_COTA'][0]
-    
-    seg_inv = seg_inv[seg_inv['fundo_cnpj'] == cnpj]
-    
-    seg_inv = seg_inv.rename(columns = {
-      'cod_segmento_investidor' : 'CNPJ_FUNDO', 
-      'segmento_investidor' : 'DENOM_SOCIAL', 
-      'pl' : 'VL_MERC_POS_FINAL', 
-      'fundo_cnpj' : 'CNPJ_FUNDO_COTA' ,
-      'fundo_fantasia' : 'NM_FUNDO_COTA'
-    })
-    
-    seg_inv['DENOM_SOCIAL'] = fund
-    
-    df = pd.concat([df, seg_inv])
-
     funds_searched = [fund]
 
     funds_search = list(df['DENOM_SOCIAL'].unique()) # type: ignore
@@ -120,11 +91,6 @@ def sankey(cda_fundos, segmento, dim_segmento, fund, fundos, colors_node, colors
     
     df['nivel'] = df.apply(lambda x: [idx for idx, item in nivel.items() if x['DENOM_SOCIAL'] in item][0] , axis = 1 ) 
     
-    
-    
-    fundos_sankey = fundos[['fundo_cnpj', 'fundo_codigo', 'fundo_fantasia']]
-    
-    
     dim_sankey = dim_sankey.merge(fundos[['fundo_cnpj', 'fundo_codigo', 'fundo_fantasia']], left_on='CNPJ_FUNDO', right_on = 'fundo_cnpj').drop(columns = ['fundo_cnpj'])
     dim_sankey = dim_sankey.merge(mvt, on = 'fundo_codigo')
     dim_sankey = dim_sankey.merge(tipo[['tipo_fundo_codigo','tipo_fundo_classe_anbima_n1']], left_on = 'codtipo', right_on = 'tipo_fundo_codigo').drop(columns = ['tipo_fundo_codigo'])
@@ -136,8 +102,7 @@ def sankey(cda_fundos, segmento, dim_segmento, fund, fundos, colors_node, colors
     
     df = df.merge(dim_sankey, left_on='CNPJ_FUNDO', right_on='CNPJ_FUNDO').rename(columns={'index' : 'index_source'})
     df = df.merge(dim_sankey, left_on='CNPJ_FUNDO_COTA', right_on='CNPJ_FUNDO').rename(columns={'index' : 'index_target'})
-    #df = df.rename(columns = {'DENOM_SOCIAL' : 'NM_FUNDO_COTA'})
-    #df = df.rename(columns = {'DENOM_SOCIAL_y' : 'DENOM_SOCIAL'})
+
     df = df.rename(columns = {'tipo_fundo_classe_anbima_n1_x' : 'tipo_fundo_classe_anbima_n1' })
     
     df['composicao'] = df.apply(lambda x: round((x['VL_MERC_POS_FINAL'] / df[df['CNPJ_FUNDO_y'] == x['CNPJ_FUNDO_y']]['VL_MERC_POS_FINAL'].sum()), 2) , axis = 1)
@@ -159,10 +124,6 @@ def sankey(cda_fundos, segmento, dim_segmento, fund, fundos, colors_node, colors
     
     df['customdata'] = df.apply(lambda x: f'De: {x["DENOM_SOCIAL_x"]}<br />Para: {x["DENOM_SOCIAL"]}', axis = 1)
     df['color'] = df.apply(lambda x: colors_link[x['tipo_fundo_classe_anbima_n1']], axis = 1)
-    
-    
-    
-    
     
     source = df['index_source']
     target = df['index_target']
@@ -189,7 +150,7 @@ fund = st.sidebar.selectbox('Fundos', sorted(cda_fundos['NM_FUNDO_COTA'].unique(
 
 st.subheader(f'Sankey Diagram')
 
-source, target, value, label, node_customdata, link_customdata, node_color, link_color, df, dim_sankey, nivel = sankey(cda_fundos, segmento, dim_segmento, fund, fundos, colors_node, colors_link) # type: ignore
+source, target, value, label, node_customdata, link_customdata, node_color, link_color, df, dim_sankey, nivel = sankey(cda_fundos, fund, fundos, colors_node, colors_link) # type: ignore
 
 fig = go.Figure(data=[go.Sankey( # type: ignore
     valueformat = "000,000.0f",    
